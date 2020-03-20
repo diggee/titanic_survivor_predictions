@@ -11,8 +11,18 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import cross_val_score
+from sklearn.linear_model import RidgeClassifier, LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
+from xgboost import XGBClassifier
+from lightgbm import LGBMClassifier
+from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
+from sklearn.model_selection import cross_val_score
+from bayes_opt import BayesianOptimization
+import warnings
+warnings.filterwarnings('ignore')
 
 #%% reading data
 
@@ -97,16 +107,14 @@ def scaled_data(X, X_valid):
 def regressor_fn_optimised(X, y, X_valid, choice):      
     from bayes_opt import BayesianOptimization
     
-    if choice == 1:    
-        from sklearn.linear_model import RidgeClassifier        
+    if choice == 1:           
         def regressor_fn(alpha):            
             regressor = RidgeClassifier(alpha = alpha)        
             cval = cross_val_score(regressor, X, y, scoring = 'balanced_accuracy', cv = 5)
             return cval.mean()
         pbounds = {'alpha': (0, 1000)}
         
-    elif choice == 2:    
-        from sklearn.neighbors import KNeighborsClassifier        
+    elif choice == 2:           
         def regressor_fn(n_neighbors):     
             n_neighbors = int(n_neighbors)
             regressor = KNeighborsClassifier(n_neighbors = n_neighbors)        
@@ -114,8 +122,7 @@ def regressor_fn_optimised(X, y, X_valid, choice):
             return cval.mean()
         pbounds = {'n_neighbors': (2,10)}
         
-    elif choice == 3:    
-        from sklearn.ensemble import RandomForestClassifier        
+    elif choice == 3:          
         def regressor_fn(n_estimators, max_depth):     
             max_depth, n_estimators = int(max_depth), int(n_estimators)
             regressor = RandomForestClassifier(n_estimators = n_estimators, max_depth = max_depth)        
@@ -124,37 +131,34 @@ def regressor_fn_optimised(X, y, X_valid, choice):
         pbounds = {'n_estimators': (10, 500), 'max_depth': (2,20)}
         
     elif choice == 4: 
-        X, X_valid, scaler_X = scaled_data(X, X_valid)
-        from sklearn.svm import SVC        
+        X, X_valid, scaler_X = scaled_data(X, X_valid)       
         def regressor_fn(C, gamma):            
             regressor = SVC(C = C, kernel = 'rbf', gamma = gamma)        
             cval = cross_val_score(regressor, X, y, scoring = 'balanced_accuracy', cv = 5)
             return cval.mean()
-        pbounds = {'C': (0.1, 100), 'gamma': (0.001, 100)}
+        pbounds = {'C': (0.1, 100), 'gamma': (0.01, 100)}
         
     elif choice == 5:
-        from lightgbm.sklearn import LGBMClassifier
         def regressor_fn(learning_rate, max_depth, n_estimators):            
             max_depth, n_estimators = int(max_depth), int(n_estimators)
             regressor = LGBMClassifier(learning_rate = learning_rate, max_depth = max_depth, n_estimators = n_estimators)        
-            cval = cross_val_score(regressor, X, y, scoring = 'balanced_accuracy', cv = 5)
+            cval = cross_val_score(regressor, X, y, scoring = 'balanced_accuracy', cv = 3)
             return cval.mean()
-        pbounds = {'learning_rate': (0.01, 1), 'max_depth': (2,40), 'n_estimators': (10, 1000)}        
+        pbounds = {'learning_rate': (0.01, 1), 'max_depth': (2,40), 'n_estimators': (10, 100)}        
         
     else:
-        from xgboost import XGBClassifier
         def regressor_fn(learning_rate, max_depth, n_estimators):            
             max_depth, n_estimators = int(max_depth), int(n_estimators)
             regressor = XGBClassifier(learning_rate = learning_rate, max_depth = max_depth, n_estimators = n_estimators)        
             cval = cross_val_score(regressor, X, y, scoring = 'balanced_accuracy', cv = 3)
             return cval.mean()
-        pbounds = {'learning_rate': (0.01, 1), 'max_depth': (2,50), 'n_estimators': (10, 1000)}
+        pbounds = {'learning_rate': (0.01, 10), 'max_depth': (2,500), 'n_estimators': (10, 500)}
     
     optimizer = BayesianOptimization(regressor_fn, pbounds, verbose = 2)
     optimizer.probe(params = {'learning_rate':0.1, 'max_depth':10, 'n_estimators':20}, lazy = True)
-    optimizer.maximize(init_points = 5, n_iter = 30)    
+    optimizer.maximize(init_points = 20, n_iter = 500)    
     # change next line in accordance with choice of regressor made
-    y_valid_pred = LGBMClassifier(learning_rate = optimizer.max['params']['learning_rate'], max_depth = int(optimizer.max['params']['max_depth']), n_estimators = int(optimizer.max['params']['max_depth'])).fit(X, y).predict(X_valid)
+    y_valid_pred = XGBClassifier(learning_rate = optimizer.max['params']['learning_rate'], max_depth = int(optimizer.max['params']['max_depth']), n_estimators = int(optimizer.max['params']['max_depth'])).fit(X, y).predict(X_valid)
     return y_valid_pred, optimizer.max
 
 #%% main
@@ -162,7 +166,8 @@ def regressor_fn_optimised(X, y, X_valid, choice):
 if __name__ == '__main__':
     full_train_data, full_test_data = get_data()
     X, y, X_valid = clean_data(full_train_data, full_test_data)
-    y_valid_pred, optimal_params = regressor_fn_optimised(X, y, X_valid, choice = 5)      
+    y_valid_pred, optimal_params = regressor_fn_optimised(X, y, X_valid, choice = 6)
+    # y_valid_pred = XGBClassifier.fit(X, y).predict(X_valid)      
     df = pd.DataFrame({'PassengerId':full_test_data.index, 'Survived':y_valid_pred})
     df.to_csv('prediction.csv', index = False)
     
